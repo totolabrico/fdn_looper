@@ -9,9 +9,9 @@ class Pcm
 {
 private:
     static constexpr snd_pcm_stream_t STREAM_TYPE[] = {SND_PCM_STREAM_CAPTURE, SND_PCM_STREAM_PLAYBACK};
-    static constexpr _snd_pcm_format FORMAT = SND_PCM_FORMAT_FLOAT;
+    static constexpr _snd_pcm_format FORMAT = SND_PCM_FORMAT_S32_LE; // SND_PCM_FORMAT_FLOAT;
     static constexpr _snd_pcm_access ACCESS = SND_PCM_ACCESS_RW_INTERLEAVED;
-    static constexpr unsigned int SOFT_RESAMPLE = 1;
+    static constexpr unsigned int SOFT_RESAMPLE = 0;
     static constexpr unsigned int FRAME_RATE = 44100;
     static constexpr snd_pcm_uframes_t FRAME_LEN = 128;
     static constexpr unsigned int LATENCY = 10000;
@@ -21,6 +21,9 @@ private:
 public:
     Pcm(std::string const &device, unsigned int type, unsigned int channels)
     {
+        std::cout << "New Pcm: " << device << std::endl;
+        if (device == "default")
+            std::cout << "Warning : default setting may involve latency" << std::endl;
         if (type != 0 && type != 1)
             type = 0;
         open(device, type);
@@ -57,6 +60,12 @@ public:
                       << std::endl;
             exit(EXIT_FAILURE);
         }
+
+        snd_pcm_uframes_t buffer_size;
+        snd_pcm_uframes_t period_size;
+        snd_pcm_get_params(_handle, &buffer_size, &period_size);
+        std::cout << "buffer_size = " << buffer_size << '\n';
+        std::cout << "period_size = " << period_size << '\n';
     }
 
     ~Pcm()
@@ -64,7 +73,7 @@ public:
         snd_pcm_close(_handle);
     }
 
-    void read(float *buffer, size_t len)
+    void read(int32_t *buffer, size_t len)
     {
         int rc;
 
@@ -75,7 +84,7 @@ public:
             snd_pcm_prepare(_handle);
     }
 
-    void write(float *buffer, size_t len)
+    void write(int32_t *buffer, size_t len)
     {
         int rc;
         rc = snd_pcm_writei(_handle, buffer, len / _channels);

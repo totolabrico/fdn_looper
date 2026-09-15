@@ -133,6 +133,17 @@ void loadConfig(float *settings, size_t fdn_buffer_size[FDN_NB_BUFFER], char *pa
         std::cout << "Configuration loading failed. Number of buffer sizes loaded: " << i << std::endl;
 }
 
+float int32ToFloat(int32_t value)
+{
+    return static_cast<float>(value) / 2147483647.0f;
+}
+
+int32_t floatToInt32(float value)
+{
+    value = std::clamp(value, -1.0f, 1.0f);
+    return static_cast<int32_t>(value * 2147483647.0f);
+}
+
 int main(int argc, char **argv)
 {
     float settings[NB_CMD] = {
@@ -147,20 +158,32 @@ int main(int argc, char **argv)
         17170,
         1270,
         12230};
-    if (argc == 2)
+
+    std::string adc_name = "default";
+    std::string dac_name = "default";
+    const int nb_channel = 2;
+    const int len = PCM_BUFFER_LEN * nb_channel;
+
+    if (argc > 1)
+        adc_name = argv[1];
+    if (argc > 2)
+        dac_name = argv[2];
+    if (argc == 4)
         loadConfig(settings, fdn_buffer_size, argv[1]);
-    Pcm adc("default", 0, 1);
-    Pcm dac("default", 1, 1);
+
+    Pcm adc(adc_name, 0, nb_channel);
+    Pcm dac(dac_name, 1, nb_channel);
     Mixer mixer(settings[0], settings[1], settings[2]);
     Fdn fdn(settings[3], settings[4], settings[5], fdn_buffer_size);
     Loop loop;
     t_env env;
     pthread_t cmd_thread;
-    float *adc_buffer = new float[PCM_BUFFER_LEN];
-    float *fdn_buffer = new float[PCM_BUFFER_LEN];
-    float *loop_buffer = new float[PCM_BUFFER_LEN];
-    float *dac_buffer = new float[PCM_BUFFER_LEN];
-
+    int32_t *adc_int_buffer = new int32_t[len];
+    int32_t *dac_int_buffer = new int32_t[len];
+    float *adc_buffer = new float[len];
+    float *dac_buffer = new float[len];
+    float *fdn_buffer = new float[len];
+    float *loop_buffer = new float[len];
     print_header();
     init_env(&env, &fdn, &mixer, &loop);
     init_commands(&env);
@@ -169,16 +192,20 @@ int main(int argc, char **argv)
         exit(1);
     while (env.running)
     {
-        adc.read(adc_buffer, PCM_BUFFER_LEN);
-        multiplyFloatArray(adc_buffer, mixer.getAdcGain(), PCM_BUFFER_LEN);
-        fdn.write(fdn_buffer, PCM_BUFFER_LEN);
-        fdn.read(adc_buffer, PCM_BUFFER_LEN);
-        fdn.incPhases(PCM_BUFFER_LEN);
-        mixer.mix(dac_buffer, adc_buffer, fdn_buffer, PCM_BUFFER_LEN);
-        multiplyFloatArray(dac_buffer, mixer.getDacGain(), PCM_BUFFER_LEN);
-        loop.run(dac_buffer, loop_buffer, PCM_BUFFER_LEN);
-        mixer.mix(dac_buffer, loop_buffer, dac_buffer, PCM_BUFFER_LEN);
-        dac.write(dac_buffer, PCM_BUFFER_LEN);
+        adc.read(adc_int_buffer, len);
+        for (size_t i = 0; i < len; i++)
+            adc_buffer[i] = int32ToFloat(adc_int_buffer[i]);
+        multiplyFloatArray(adc_buffer, mixer.getAdcGain(), len);
+        fdn.write(fdn_buffer, len);
+        fdn.read(adc_buffer, len);
+        fdn.incPhases(len);
+        mixer.mix(dac_buffer, adc_buffer, fdn_buffer, len);
+        multiplyFloatArray(dac_buffer, mixer.getDacGain(), len);
+        loop.run(dac_buffer, loop_buffer, len);
+        mixer.mix(dac_buffer, loop_buffer, dac_buffer, len);
+        for (size_t i = 0; i < len; i++)
+            dac_int_buffer[i] = floatToInt32(dac_buffer[i]);
+        dac.write(dac_int_buffer, len);
     }
     return 0;
 }
